@@ -1,100 +1,106 @@
 import OpenAI from "openai";
 const openai = new OpenAI(process.env.OPENAI_API_KEY);
 
-// Exemplo de função fictícia codificada para retornar o mesmo clima
-// Na produção, isso poderia ser sua API de backend ou uma API externa
-function obterClimaAtual(local, unidade = "fahrenheit") {
-  if (local.toLowerCase().includes("tokyo")) {
+// Example dummy function hard coded to return the same weather
+// In production, this could be your backend API or an external API
+const getCurrentWeather = (location, unit = "fahrenheit") => {
+  if (location.toLowerCase().includes("tokyo")) {
     return JSON.stringify({
-      local: "Tokyo",
-      temperatura: "10",
-      unidade: "celsius",
+      location: "Tokyo",
+      temperature: "-10",
+      unit: "celsius",
     });
-  } else if (local.toLowerCase().includes("san francisco")) {
+  } else if (location.toLowerCase().includes("san francisco")) {
     return JSON.stringify({
-      local: "San Francisco",
-      temperatura: "72",
-      unidade: "fahrenheit",
+      location: "San Francisco",
+      temperature: "32",
+      unit: "celsius",
     });
-  } else if (local.toLowerCase().includes("paris")) {
+  } else if (location.toLowerCase().includes("paris")) {
     return JSON.stringify({
-      local: "Paris",
-      temperatura: "22",
-      unidade: "fahrenheit",
+      location: "Paris",
+      temperature: "8",
+      unit: "celsius",
     });
   } else {
-    return JSON.stringify({ local, temperatura: "desconhecida" });
+    return JSON.stringify({ location, temperature: "unknown" });
   }
-}
+};
 
-async function executarConversa() {
-  // Passo 1: envie a conversa e as funções disponíveis para o modelo
-  const mensagens = [
-    {
-      papel: "usuario",
-      conteudo: "Como está o clima em San Francisco, Tokyo e Paris?",
-    },
+const runConversation = async () => {
+  // Step 1: send the conversation and available functions to the model
+  const messages = [
+    { role: "user", content: "Should i use a jacket in Tokyo ?" },
   ];
-  const ferramentas = [
+  const tools = [
     {
-      tipo: "funcao",
-      funcao: {
-        nome: "obter_clima_atual",
-        descricao: "Obter o clima atual em um determinado local",
-        parametros: {
-          tipo: "objeto",
-          propriedades: {
-            local: {
-              tipo: "string",
-              descricao: "A cidade e o estado, por exemplo, San Francisco, CA",
+      type: "function",
+      function: {
+        name: "get_current_weather",
+        description: "Get the current weather in a given location",
+        parameters: {
+          type: "object",
+          properties: {
+            location: {
+              type: "string",
+              description: "The city and state, e.g. San Francisco, CA",
             },
-            unidade: { tipo: "string", enum: ["celsius", "fahrenheit"] },
+            unit: { type: "string", enum: ["celsius", "fahrenheit"] },
           },
-          obrigatorio: ["local"],
+          required: ["location"],
         },
       },
     },
   ];
 
-  const resposta = await openai.chat.completions.create({
+  const response = await openai.chat.completions.create({
     model: "gpt-3.5-turbo-1106",
-    mensagens: mensagens,
-    ferramentas: ferramentas,
-    escolha_ferramenta: "auto", // auto é o padrão, mas vamos ser explícitos
+    messages: messages,
+    tools: tools,
+    tool_choice: "auto", // auto is default, but we'll be explicit
   });
-  const mensagemResposta = resposta.choices[0].message;
+  const responseMessage = response.choices[0].message;
 
-  // Passo 2: verifique se o modelo queria chamar uma função
-  const chamadasFerramenta = mensagemResposta.tool_calls;
-  if (mensagemResposta.tool_calls) {
-    // Passo 3: chame a função
-    // Nota: a resposta JSON pode nem sempre ser válida; certifique-se de tratar erros
-    const funcoesDisponiveis = {
-      obter_clima_atual: obterClimaAtual,
-    }; // apenas uma função neste exemplo, mas você pode ter várias
-    mensagens.push(mensagemResposta); // estenda a conversa com a resposta do assistente
-    for (const chamadaFerramenta of chamadasFerramenta) {
-      const nomeFuncao = chamadaFerramenta.function.name;
-      const funcaoParaChamar = funcoesDisponiveis[nomeFuncao];
-      const argumentosFuncao = JSON.parse(chamadaFerramenta.function.arguments);
-      const respostaFuncao = funcaoParaChamar(
-        argumentosFuncao.local,
-        argumentosFuncao.unidade
+  // Step 2: check if the model wanted to call a function
+  const toolCalls = responseMessage.tool_calls;
+
+  if (responseMessage.tool_calls) {
+    // Step 3: call the function
+    // Note: the JSON response may not always be valid; be sure to handle errors
+    const availableFunctions = {
+      get_current_weather: getCurrentWeather,
+    }; // only one function in this example, but you can have multiple
+    messages.push(responseMessage); // extend conversation with assistant's reply
+    for (const toolCall of toolCalls) {
+      const functionName = toolCall.function.name;
+      const functionToCall = availableFunctions[functionName];
+      const functionArgs = JSON.parse(toolCall.function.arguments);
+      const functionResponse = functionToCall(
+        functionArgs.location,
+        functionArgs.unit
       );
-      mensagens.push({
-        id_chamada_ferramenta: chamadaFerramenta.id,
-        papel: "ferramenta",
-        nome: nomeFuncao,
-        conteudo: respostaFuncao,
-      }); // estenda a conversa com a resposta da função
+      messages.push({
+        tool_call_id: toolCall.id,
+        role: "tool",
+        name: functionName,
+        content: functionResponse,
+      }); // extend conversation with function response
     }
-    const segundaResposta = await openai.chat.completions.create({
+    const secondResponse = await openai.chat.completions.create({
       model: "gpt-3.5-turbo-1106",
-      mensagens: mensagens,
-    }); // obtenha uma nova resposta do modelo onde ele pode ver a resposta da função
-    return segundaResposta.choices;
+      messages: messages,
+    }); // get a new response from the model where it can see the function response
+    
+    messages.forEach((message) => console.log(JSON.stringify(message)));
+    return secondResponse.choices;
   }
-}
 
-const resposta = await executarConversa();
-console.log(resposta);
+  
+};
+
+try {
+  const gptResponse = await runConversation();
+  console.log(gptResponse);
+} catch (error) {
+  console.log(error);
+}
